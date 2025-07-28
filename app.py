@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from models import db, User, News, Product, Purchase
+from models import db, User, News, Product, Purchase, PurchaseRequest
 
 # NEWS CRUD ENDPOINTS
 from sqlalchemy import desc
@@ -240,44 +240,340 @@ def purchase_product():
     if not all([user_name, product_id, points]):
         return jsonify({'error': 'Missing required fields'}), 400
     
-    # Ürünü kontrol et
-    product = Product.query.get(product_id)
-    if not product:
-        return jsonify({'error': 'Product not found'}), 404
-    
-    if not product.is_available:
-        return jsonify({'error': 'Product is not available'}), 400
-    
-    if product.stock <= 0:
-        return jsonify({'error': 'Product is out of stock'}), 400
-    
-    # Kullanıcının puanını kontrol et (bu kısım puan API'si ile entegre edilecek)
-    # Şimdilik başarılı kabul ediyoruz
-    
-    # Satın alım kaydı oluştur
-    purchase = Purchase(
-        user_name=user_name,
-        product_id=product_id,
-        points_spent=points
-    )
-    db.session.add(purchase)
-    
-    # Stok güncelle
-    product.stock = max(0, product.stock - 1)
-    
-    db.session.commit()
+    try:
+        # Ürünü kontrol et
+        product = Product.query.get(product_id)
+        if not product:
+            return jsonify({'error': 'Product not found'}), 404
+        
+        if not product.is_available:
+            return jsonify({'error': 'Product is not available'}), 400
+        
+        if product.stock <= 0:
+            return jsonify({'error': 'Product is out of stock'}), 400
+        
+        # Kullanıcı bilgilerini al
+        user = User.query.filter_by(name=user_name).first()
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Satın alım kaydı oluştur (eski sistem)
+        purchase = Purchase(
+            user_name=user_name,
+            product_id=product_id,
+            points_spent=points
+        )
+        
+        # Stok güncelle
+        product.stock = max(0, product.stock - 1)
+        
+        db.session.add(purchase)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Purchase completed successfully',
+            'purchase': {
+                'id': purchase.id,
+                'user_name': purchase.user_name,
+                'product_id': purchase.product_id,
+                'points_spent': purchase.points_spent,
+                'created_at': purchase.created_at
+            }
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Purchase failed: {str(e)}'}), 500
+
+# --- PURCHASE REQUEST MANAGEMENT ENDPOINTS ---
+
+@app.route('/api/purchase_requests', methods=['GET'])
+def get_purchase_requests():
+    """Bekleyen satın alım taleplerini getir"""
+    requests = PurchaseRequest.query.filter_by(status='pending').order_by(PurchaseRequest.created_at.desc()).all()
     
     return jsonify({
-        'success': True,
-        'message': 'Purchase completed successfully',
-        'purchase': {
-            'id': purchase.id,
-            'user_name': purchase.user_name,
-            'product_id': purchase.product_id,
-            'points_spent': purchase.points_spent,
-            'created_at': purchase.created_at
-        }
+        'requests': [{
+            'id': req.id,
+            'user_name': req.user_name,
+            'user_email': req.user_email,
+            'product_id': req.product_id,
+            'product_name': req.product_name,
+            'points_required': req.points_required,
+            'status': req.status,
+            'created_at': req.created_at.isoformat() if req.created_at else None
+        } for req in requests]
     })
+
+@app.route('/api/purchase_requests/<int:request_id>/approve', methods=['POST'])
+def approve_purchase_request(request_id):
+    """Satın alım talebini onayla"""
+    data = request.json
+    admin_name = data.get('admin_name', 'Admin')
+    notes = data.get('notes', '')
+    
+    try:
+        request = PurchaseRequest.query.get(request_id)
+        if not request:
+            return jsonify({'error': 'Purchase request not found'}), 404
+        
+        if request.status != 'pending':
+            return jsonify({'error': 'Request is not pending'}), 400
+        
+        # Ürünü kontrol et
+        product = Product.query.get(request.product_id)
+        if not product or not product.is_available or product.stock <= 0:
+            return jsonify({'error': 'Product is not available or out of stock'}), 400
+        
+        # Kullanıcıyı kontrol et
+        user = User.query.filter_by(name=request.user_name).first()
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Puan kontrolü - Ana backend'den kullanıcının puanını al
+        try:
+            import requests
+            points_response = requests.get(f'https://gkappp.onrender.com/api/members')
+            if points_response.ok:
+                members = points_response.json()
+                user_member = next((m for m in members if m.get('name') == request.user_name), None)
+                if user_member and user_member.get('points', 0) >= request.points_required:
+                    # Puan yeterli, puanı düş
+                    points_update_response = requests.post(f'https://gkappp.onrender.com/members/adjust_points', data={
+                        'member_id': user_member.get('id'),
+                        'action': 'subtract',
+                        'point_value': request.points_required,
+                        'point_reason': f'Ürün satın alımı: {request.product_name}'
+                    })
+                    if not points_update_response.ok:
+                        return jsonify({'error': 'Puan güncelleme başarısız'}), 500
+                else:
+                    return jsonify({'error': 'Yetersiz puan'}), 400
+            else:
+                return jsonify({'error': 'Puan kontrolü başarısız'}), 500
+        except Exception as e:
+            print(f"Puan API hatası: {e}")
+            return jsonify({'error': 'Puan sistemi hatası'}), 500
+        
+        # Talebi onayla
+        request.status = 'approved'
+        request.approved_at = db.func.now()
+        request.approved_by = admin_name
+        request.notes = notes
+        
+        # Stok güncelle
+        product.stock = max(0, product.stock - 1)
+        
+        # Onaylanan satın alımı kaydet
+        purchase = Purchase(
+            user_name=request.user_name,
+            product_id=request.product_id,
+            points_spent=request.points_required
+        )
+        
+        db.session.add(purchase)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Satın alım talebi onaylandı',
+            'purchase_id': purchase.id
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Approval failed: {str(e)}'}), 500
+
+@app.route('/api/purchase_requests/<int:request_id>/reject', methods=['POST'])
+def reject_purchase_request(request_id):
+    """Satın alım talebini reddet"""
+    data = request.json
+    admin_name = data.get('admin_name', 'Admin')
+    notes = data.get('notes', '')
+    
+    try:
+        request = PurchaseRequest.query.get(request_id)
+        if not request:
+            return jsonify({'error': 'Purchase request not found'}), 404
+        
+        if request.status != 'pending':
+            return jsonify({'error': 'Request is not pending'}), 400
+        
+        # Talebi reddet
+        request.status = 'rejected'
+        request.approved_at = db.func.now()
+        request.approved_by = admin_name
+        request.notes = notes
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Satın alım talebi reddedildi'
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Rejection failed: {str(e)}'}), 500
+
+# --- POINTS MANAGEMENT ENDPOINTS ---
+
+@app.route('/api/update_points', methods=['POST'])
+def update_user_points():
+    data = request.json
+    user_name = data.get('user_name')
+    points_to_deduct = data.get('points_to_deduct')
+    user_email = data.get('user_email')
+    reason = data.get('reason', 'Ürün satın alımı')
+    
+    if not all([user_name, points_to_deduct]):
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    try:
+        # PostgreSQL'de puan güncelleme
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Database connection failed'}), 500
+        
+        cursor = conn.cursor()
+        
+        # Kullanıcıyı bul (email veya isim ile)
+        if user_email:
+            cursor.execute("SELECT id, name, points FROM members WHERE email = %s", (user_email,))
+        else:
+            cursor.execute("SELECT id, name, points FROM members WHERE name = %s", (user_name,))
+        
+        member = cursor.fetchone()
+        if not member:
+            return jsonify({'error': 'User not found'}), 404
+        
+        member_id, member_name, current_points = member
+        
+        # Puanları güncelle
+        new_points = max(0, current_points - points_to_deduct)
+        cursor.execute("UPDATE members SET points = %s WHERE id = %s", (new_points, member_id))
+        
+        # Puan logu ekle
+        cursor.execute(
+            "INSERT INTO points_log (member_id, points_earned, reason) VALUES (%s, %s, %s)",
+            (member_id, -points_to_deduct, reason)
+        )
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"Puan güncelleme: {member_name} kullanıcısından {points_to_deduct} puan düşüldü (Yeni puan: {new_points})")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Points updated successfully for {member_name}',
+            'points_deducted': points_to_deduct,
+            'new_points': new_points,
+            'member_id': member_id
+        })
+    except Exception as e:
+        return jsonify({'error': f'Failed to update points: {str(e)}'}), 500
+
+@app.route('/api/adjust_points', methods=['POST'])
+def adjust_points():
+    data = request.json
+    user_name = data.get('user_name')
+    user_email = data.get('user_email')
+    action = data.get('action')  # 'add' veya 'subtract'
+    point_value = data.get('point_value', 0)
+    point_reason = data.get('point_reason', 'Manuel puan güncelleme')
+    
+    if not all([user_name, action, point_value]) or action not in ['add', 'subtract']:
+        return jsonify({'error': 'Missing or invalid required fields'}), 400
+    
+    try:
+        # PostgreSQL'de puan güncelleme
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Database connection failed'}), 500
+        
+        cursor = conn.cursor()
+        
+        # Kullanıcıyı bul (email veya isim ile)
+        if user_email:
+            cursor.execute("SELECT id, name, points FROM members WHERE email = %s", (user_email,))
+        else:
+            cursor.execute("SELECT id, name, points FROM members WHERE name = %s", (user_name,))
+        
+        member = cursor.fetchone()
+        if not member:
+            return jsonify({'error': 'User not found'}), 404
+        
+        member_id, member_name, current_points = member
+        
+        # Puanları güncelle
+        if action == 'add':
+            new_points = current_points + point_value
+            points_change = point_value
+        else:  # subtract
+            new_points = max(0, current_points - point_value)
+            points_change = -point_value
+        
+        cursor.execute("UPDATE members SET points = %s WHERE id = %s", (new_points, member_id))
+        
+        # Puan logu ekle
+        cursor.execute(
+            "INSERT INTO points_log (member_id, points_earned, reason) VALUES (%s, %s, %s)",
+            (member_id, points_change, point_reason)
+        )
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"Puan güncelleme: {member_name} kullanıcısına {points_change} puan {action}ed (Yeni puan: {new_points})")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Points {action}ed successfully for {member_name}',
+            'points_change': points_change,
+            'new_points': new_points,
+            'member_id': member_id
+        })
+    except Exception as e:
+        return jsonify({'error': f'Failed to adjust points: {str(e)}'}), 500
+
+@app.route('/api/member_points')
+def get_member_points():
+    name = request.args.get('name')
+    email = request.args.get('email')
+    
+    if not name and not email:
+        return jsonify({'error': 'Name or email required'}), 400
+    
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Database connection failed'}), 500
+        
+        cursor = conn.cursor()
+        
+        # Kullanıcıyı bul
+        if email:
+            cursor.execute("SELECT id, name, points FROM members WHERE email = %s", (email,))
+        else:
+            cursor.execute("SELECT id, name, points FROM members WHERE name = %s", (name,))
+        
+        member = cursor.fetchone()
+        conn.close()
+        
+        if member:
+            member_id, member_name, points = member
+            return jsonify({
+                'id': member_id,
+                'name': member_name,
+                'points': points
+            })
+        else:
+            return jsonify({'error': 'User not found'}), 404
+            
+    except Exception as e:
+        return jsonify({'error': f'Failed to get member points: {str(e)}'}), 500
 
 if __name__ == '__main__':
     with app.app_context():

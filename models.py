@@ -32,6 +32,19 @@ class Product(db.Model):
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
 
+class PurchaseRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_name = db.Column(db.String(100), nullable=False)
+    user_email = db.Column(db.String(100), nullable=False)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
+    product_name = db.Column(db.String(200), nullable=False)
+    points_required = db.Column(db.Integer, nullable=False)
+    status = db.Column(db.String(20), default='pending')  # pending, approved, rejected
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    approved_at = db.Column(db.DateTime)
+    approved_by = db.Column(db.String(100))
+    notes = db.Column(db.Text)
+
 class Purchase(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_name = db.Column(db.String(100), nullable=False)

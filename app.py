@@ -24,6 +24,11 @@ CORS(app)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://neondb_owner:npg_J3cztba8mNfo@ep-solitary-silence-a2tdicc0-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require'
 db.init_app(app)
 
+import os
+with app.app_context():
+    if os.environ.get("CREATE_TABLES", "0") == "1":
+        db.create_all()
+
 # --- Tüm route'lar bundan sonra başlıyor ---
 
 @app.route('/api/news', methods=['GET'])

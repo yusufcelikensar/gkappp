@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from models import db, User, News
+from models import db, User, News, Product, Purchase
 
 # NEWS CRUD ENDPOINTS
 from sqlalchemy import desc
@@ -15,6 +15,20 @@ def news_to_dict(news):
         'cover_image_url': news.cover_image_url,
         'created_at': news.created_at,
         'updated_at': news.updated_at,
+    }
+
+def product_to_dict(product):
+    return {
+        'id': str(product.id),
+        'name': product.name,
+        'description': product.description,
+        'image': product.image,
+        'points': product.points,
+        'category': product.category,
+        'stock': product.stock,
+        'isAvailable': product.is_available,
+        'created_at': product.created_at,
+        'updated_at': product.updated_at,
     }
 
 app = Flask(__name__)
@@ -163,6 +177,107 @@ def reset_admin():
     db.session.commit()
     return jsonify({'message': 'Tüm kullanıcılar silindi ve admin hesabı eklendi.',
                     'admin': {'email': admin.email, 'password': admin.password}}), 200
+
+# --- PRODUCT MANAGEMENT ENDPOINTS ---
+
+@app.route('/api/products', methods=['GET'])
+def get_products():
+    products = Product.query.filter_by(is_available=True).order_by(desc(Product.created_at)).all()
+    return jsonify({'products': [product_to_dict(p) for p in products]})
+
+@app.route('/api/products', methods=['POST'])
+def create_product():
+    data = request.json
+    product = Product(
+        name=data['name'],
+        description=data['description'],
+        image=data['image'],
+        points=data['points'],
+        category=data['category'],
+        stock=data.get('stock', 0)
+    )
+    db.session.add(product)
+    db.session.commit()
+    return jsonify({'success': True, 'product': product_to_dict(product)}), 201
+
+@app.route('/api/products/<int:product_id>', methods=['PUT'])
+def update_product(product_id):
+    product = Product.query.get(product_id)
+    if not product:
+        return jsonify({'error': 'Product not found'}), 404
+    
+    data = request.json
+    product.name = data.get('name', product.name)
+    product.description = data.get('description', product.description)
+    product.image = data.get('image', product.image)
+    product.points = data.get('points', product.points)
+    product.category = data.get('category', product.category)
+    product.stock = data.get('stock', product.stock)
+    product.is_available = data.get('isAvailable', product.is_available)
+    
+    db.session.commit()
+    return jsonify({'success': True, 'product': product_to_dict(product)})
+
+@app.route('/api/products/<int:product_id>', methods=['DELETE'])
+def delete_product(product_id):
+    product = Product.query.get(product_id)
+    if not product:
+        return jsonify({'error': 'Product not found'}), 404
+    
+    db.session.delete(product)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Product deleted'})
+
+# --- PURCHASE ENDPOINTS ---
+
+@app.route('/api/purchase', methods=['POST'])
+def purchase_product():
+    data = request.json
+    user_name = data.get('user_name')
+    product_id = data.get('product_id')
+    points = data.get('points')
+    
+    if not all([user_name, product_id, points]):
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    # Ürünü kontrol et
+    product = Product.query.get(product_id)
+    if not product:
+        return jsonify({'error': 'Product not found'}), 404
+    
+    if not product.is_available:
+        return jsonify({'error': 'Product is not available'}), 400
+    
+    if product.stock <= 0:
+        return jsonify({'error': 'Product is out of stock'}), 400
+    
+    # Kullanıcının puanını kontrol et (bu kısım puan API'si ile entegre edilecek)
+    # Şimdilik başarılı kabul ediyoruz
+    
+    # Satın alım kaydı oluştur
+    purchase = Purchase(
+        user_name=user_name,
+        product_id=product_id,
+        points_spent=points
+    )
+    db.session.add(purchase)
+    
+    # Stok güncelle
+    product.stock = max(0, product.stock - 1)
+    
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'message': 'Purchase completed successfully',
+        'purchase': {
+            'id': purchase.id,
+            'user_name': purchase.user_name,
+            'product_id': purchase.product_id,
+            'points_spent': purchase.points_spent,
+            'created_at': purchase.created_at
+        }
+    })
 
 if __name__ == '__main__':
     with app.app_context():

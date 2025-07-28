@@ -1,6 +1,70 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from models import db, User
+from models import db, User, News
+
+# NEWS CRUD ENDPOINTS
+from sqlalchemy import desc
+
+def news_to_dict(news):
+    return {
+        'id': news.id,
+        'title': news.title,
+        'summary': news.summary,
+        'category': news.category,
+        'tags': news.tags.split(',') if news.tags else [],
+        'cover_image_url': news.cover_image_url,
+        'created_at': news.created_at,
+        'updated_at': news.updated_at,
+    }
+
+@app.route('/api/news', methods=['GET'])
+def get_news():
+    news_list = News.query.order_by(desc(News.created_at)).all()
+    return jsonify([news_to_dict(n) for n in news_list])
+
+@app.route('/api/news', methods=['POST'])
+def create_news():
+    data = request.json
+    news = News(
+        title=data['title'],
+        summary=data['summary'],
+        category=data['category'],
+        tags=','.join(data.get('tags', [])),
+        cover_image_url=data.get('cover_image_url')
+    )
+    db.session.add(news)
+    db.session.commit()
+    return jsonify(news_to_dict(news)), 201
+
+@app.route('/api/news/<int:news_id>', methods=['GET'])
+def get_news_detail(news_id):
+    news = News.query.get(news_id)
+    if not news:
+        return jsonify({'error': 'News not found'}), 404
+    return jsonify(news_to_dict(news))
+
+@app.route('/api/news/<int:news_id>', methods=['PUT'])
+def update_news(news_id):
+    news = News.query.get(news_id)
+    if not news:
+        return jsonify({'error': 'News not found'}), 404
+    data = request.json
+    news.title = data.get('title', news.title)
+    news.summary = data.get('summary', news.summary)
+    news.category = data.get('category', news.category)
+    news.tags = ','.join(data.get('tags', news.tags.split(',') if news.tags else []))
+    news.cover_image_url = data.get('cover_image_url', news.cover_image_url)
+    db.session.commit()
+    return jsonify(news_to_dict(news))
+
+@app.route('/api/news/<int:news_id>', methods=['DELETE'])
+def delete_news(news_id):
+    news = News.query.get(news_id)
+    if not news:
+        return jsonify({'error': 'News not found'}), 404
+    db.session.delete(news)
+    db.session.commit()
+    return jsonify({'message': 'News deleted'})
 
 app = Flask(__name__)
 CORS(app)

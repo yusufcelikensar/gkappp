@@ -17,6 +17,15 @@ def news_to_dict(news):
         'updated_at': news.updated_at,
     }
 
+app = Flask(__name__)
+CORS(app)
+
+# NeonDB bağlantı adresi (kullanıcının verdiği)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://neondb_owner:npg_J3cztba8mNfo@ep-solitary-silence-a2tdicc0-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require'
+db.init_app(app)
+
+# --- Tüm route'lar bundan sonra başlıyor ---
+
 @app.route('/api/news', methods=['GET'])
 def get_news():
     news_list = News.query.order_by(desc(News.created_at)).all()
@@ -65,13 +74,6 @@ def delete_news(news_id):
     db.session.delete(news)
     db.session.commit()
     return jsonify({'message': 'News deleted'})
-
-app = Flask(__name__)
-CORS(app)
-
-# NeonDB bağlantı adresi (kullanıcının verdiği)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://neondb_owner:npg_J3cztba8mNfo@ep-solitary-silence-a2tdicc0-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require'
-db.init_app(app)
 
 @app.route('/api/register', methods=['POST'])
 def register():

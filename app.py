@@ -692,11 +692,148 @@ def delete_event(event_id):
 
 @app.route('/api/events/all', methods=['GET'])
 def get_all_events():
-    """Admin için tüm etkinlikleri getir (aktif/pasif)"""
-    events_list = Event.query.order_by(Event.date.desc()).all()
-    return jsonify([event_to_dict(e) for e in events_list])
+    events = Event.query.all()
+    return jsonify([event_to_dict(event) for event in events])
+
+# SLIDER IMAGES CRUD ENDPOINTS
+@app.route('/api/slider_images', methods=['GET'])
+def get_slider_images():
+    try:
+        conn = get_db_connection()
+        if conn is None:
+            return jsonify({'error': 'Veritabanı bağlantı hatası'}), 500
+        
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, image_url, title, description, created_at, updated_at 
+            FROM slider_images 
+            ORDER BY created_at DESC
+        """)
+        
+        images = []
+        for row in cursor.fetchall():
+            images.append({
+                'id': row[0],
+                'image_url': row[1],
+                'title': row[2],
+                'description': row[3],
+                'created_at': row[4].isoformat() if row[4] else None,
+                'updated_at': row[5].isoformat() if row[5] else None,
+            })
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'images': images})
+    except Exception as e:
+        print(f"Slider images get error: {e}")
+        return jsonify({'error': 'Slider fotoğrafları alınamadı'}), 500
+
+@app.route('/api/slider_images', methods=['POST'])
+def create_slider_image():
+    try:
+        data = request.json
+        conn = get_db_connection()
+        if conn is None:
+            return jsonify({'error': 'Veritabanı bağlantı hatası'}), 500
+        
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO slider_images (image_url, title, description, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            data.get('image_url'),
+            data.get('title', ''),
+            data.get('description', ''),
+            datetime.now(),
+            datetime.now()
+        ))
+        
+        image_id = cursor.fetchone()[0]
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'id': image_id,
+            'image_url': data.get('image_url'),
+            'title': data.get('title', ''),
+            'description': data.get('description', ''),
+            'created_at': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat(),
+        }), 201
+    except Exception as e:
+        print(f"Slider image create error: {e}")
+        return jsonify({'error': 'Slider fotoğrafı eklenemedi'}), 500
+
+@app.route('/api/slider_images/<int:image_id>', methods=['PUT'])
+def update_slider_image(image_id):
+    try:
+        data = request.json
+        conn = get_db_connection()
+        if conn is None:
+            return jsonify({'error': 'Veritabanı bağlantı hatası'}), 500
+        
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE slider_images 
+            SET image_url = %s, title = %s, description = %s, updated_at = %s
+            WHERE id = %s
+            RETURNING id, image_url, title, description, created_at, updated_at
+        """, (
+            data.get('image_url'),
+            data.get('title', ''),
+            data.get('description', ''),
+            datetime.now(),
+            image_id
+        ))
+        
+        row = cursor.fetchone()
+        if row is None:
+            cursor.close()
+            conn.close()
+            return jsonify({'error': 'Slider fotoğrafı bulunamadı'}), 404
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'id': row[0],
+            'image_url': row[1],
+            'title': row[2],
+            'description': row[3],
+            'created_at': row[4].isoformat() if row[4] else None,
+            'updated_at': row[5].isoformat() if row[5] else None,
+        })
+    except Exception as e:
+        print(f"Slider image update error: {e}")
+        return jsonify({'error': 'Slider fotoğrafı güncellenemedi'}), 500
+
+@app.route('/api/slider_images/<int:image_id>', methods=['DELETE'])
+def delete_slider_image(image_id):
+    try:
+        conn = get_db_connection()
+        if conn is None:
+            return jsonify({'error': 'Veritabanı bağlantı hatası'}), 500
+        
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM slider_images WHERE id = %s", (image_id,))
+        
+        if cursor.rowcount == 0:
+            cursor.close()
+            conn.close()
+            return jsonify({'error': 'Slider fotoğrafı bulunamadı'}), 404
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'message': 'Slider fotoğrafı silindi'})
+    except Exception as e:
+        print(f"Slider image delete error: {e}")
+        return jsonify({'error': 'Slider fotoğrafı silinemedi'}), 500
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-    app.run(debug=True) 
+    app.run(debug=True, host='0.0.0.0', port=5000) 

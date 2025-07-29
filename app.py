@@ -407,6 +407,7 @@ def approve_purchase_request(request_id):
             points_spent=purchase_request.points_required
         )
         db.session.add(purchase)
+        db.session.delete(purchase_request)  # Talebi sil
         db.session.commit()
         return jsonify({
             'success': True,
@@ -433,6 +434,7 @@ def reject_purchase_request(request_id):
         purchase_request.approved_at = db.func.now()
         purchase_request.approved_by = admin_name
         purchase_request.notes = notes
+        db.session.delete(purchase_request)  # Talebi sil
         db.session.commit()
         return jsonify({'success': True, 'message': 'Satın alım talebi reddedildi'})
     except Exception as e:

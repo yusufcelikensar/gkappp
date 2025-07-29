@@ -1,9 +1,26 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from models import db, User, News, Product, Purchase, PurchaseRequest
+import psycopg2
+import os
 
 # NEWS CRUD ENDPOINTS
 from sqlalchemy import desc
+
+def get_db_connection():
+    """PostgreSQL veritabanı bağlantısı"""
+    try:
+        conn = psycopg2.connect(
+            host="ep-solitary-silence-a2tdicc0-pooler.eu-central-1.aws.neon.tech",
+            database="neondb",
+            user="neondb_owner",
+            password="npg_J3cztba8mNfo",
+            sslmode="require"
+        )
+        return conn
+    except Exception as e:
+        print(f"Veritabanı bağlantı hatası: {e}")
+        return None
 
 def news_to_dict(news):
     return {
@@ -305,6 +322,33 @@ def get_purchase_requests():
             'created_at': req.created_at.isoformat() if req.created_at else None
         } for req in requests]
     })
+
+@app.route('/api/purchase_requests', methods=['POST'])
+def create_purchase_request():
+    data = request.json
+    user_name = data.get('user_name')
+    user_email = data.get('user_email')
+    product_id = data.get('product_id')
+    product_name = data.get('product_name')
+    points_required = data.get('points_required')
+    if not all([user_name, user_email, product_id, product_name, points_required]):
+        return jsonify({'error': 'Eksik alanlar var'}), 400
+    try:
+        from models import PurchaseRequest
+        req = PurchaseRequest(
+            user_name=user_name,
+            user_email=user_email,
+            product_id=product_id,
+            product_name=product_name,
+            points_required=points_required,
+            status='pending'
+        )
+        db.session.add(req)
+        db.session.commit()
+        return jsonify({'success': True, 'request_id': req.id}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Satın alım isteği kaydedilemedi: {str(e)}'}), 500
 
 @app.route('/api/purchase_requests/<int:request_id>/approve', methods=['POST'])
 def approve_purchase_request(request_id):

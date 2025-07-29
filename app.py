@@ -1,8 +1,9 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from models import db, User, News, Product, Purchase, PurchaseRequest
+from models import db, User, News, Product, Purchase, PurchaseRequest, Event
 import psycopg2
 import os
+from datetime import datetime
 
 # NEWS CRUD ENDPOINTS
 from sqlalchemy import desc
@@ -32,6 +33,22 @@ def news_to_dict(news):
         'cover_image_url': news.cover_image_url,
         'created_at': news.created_at,
         'updated_at': news.updated_at,
+    }
+
+def event_to_dict(event):
+    return {
+        'id': event.id,
+        'title': event.title,
+        'description': event.description,
+        'date': event.date.strftime('%Y-%m-%d') if event.date else None,
+        'time': event.time,
+        'location': event.location,
+        'image_url': event.image_url,
+        'price': event.price,
+        'capacity': event.capacity,
+        'is_active': event.is_active,
+        'created_at': event.created_at,
+        'updated_at': event.updated_at,
     }
 
 def product_to_dict(product):
@@ -598,6 +615,86 @@ def get_member_points():
             
     except Exception as e:
         return jsonify({'error': f'Failed to get member points: {str(e)}'}), 500
+
+# EVENT CRUD ENDPOINTS
+@app.route('/api/events', methods=['GET'])
+def get_events():
+    events_list = Event.query.filter_by(is_active=True).order_by(Event.date.asc()).all()
+    return jsonify([event_to_dict(e) for e in events_list])
+
+@app.route('/api/events', methods=['POST'])
+def create_event():
+    data = request.json
+    try:
+        event = Event(
+            title=data['title'],
+            description=data['description'],
+            date=datetime.strptime(data['date'], '%Y-%m-%d').date(),
+            time=data['time'],
+            location=data['location'],
+            image_url=data.get('image_url'),
+            price=data.get('price', 'Ücretsiz'),
+            capacity=data.get('capacity', 'Sınırsız'),
+            is_active=data.get('is_active', True)
+        )
+        db.session.add(event)
+        db.session.commit()
+        return jsonify(event_to_dict(event)), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to create event: {str(e)}'}), 400
+
+@app.route('/api/events/<int:event_id>', methods=['GET'])
+def get_event_detail(event_id):
+    event = Event.query.get(event_id)
+    if not event:
+        return jsonify({'error': 'Event not found'}), 404
+    return jsonify(event_to_dict(event))
+
+@app.route('/api/events/<int:event_id>', methods=['PUT'])
+def update_event(event_id):
+    event = Event.query.get(event_id)
+    if not event:
+        return jsonify({'error': 'Event not found'}), 404
+    
+    data = request.json
+    try:
+        event.title = data.get('title', event.title)
+        event.description = data.get('description', event.description)
+        if 'date' in data:
+            event.date = datetime.strptime(data['date'], '%Y-%m-%d').date()
+        event.time = data.get('time', event.time)
+        event.location = data.get('location', event.location)
+        event.image_url = data.get('image_url', event.image_url)
+        event.price = data.get('price', event.price)
+        event.capacity = data.get('capacity', event.capacity)
+        event.is_active = data.get('is_active', event.is_active)
+        
+        db.session.commit()
+        return jsonify(event_to_dict(event))
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to update event: {str(e)}'}), 400
+
+@app.route('/api/events/<int:event_id>', methods=['DELETE'])
+def delete_event(event_id):
+    event = Event.query.get(event_id)
+    if not event:
+        return jsonify({'error': 'Event not found'}), 404
+    
+    try:
+        db.session.delete(event)
+        db.session.commit()
+        return jsonify({'message': 'Event deleted successfully'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to delete event: {str(e)}'}), 400
+
+@app.route('/api/events/all', methods=['GET'])
+def get_all_events():
+    """Admin için tüm etkinlikleri getir (aktif/pasif)"""
+    events_list = Event.query.order_by(Event.date.desc()).all()
+    return jsonify([event_to_dict(e) for e in events_list])
 
 if __name__ == '__main__':
     with app.app_context():

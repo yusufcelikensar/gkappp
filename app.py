@@ -352,43 +352,37 @@ def create_purchase_request():
 
 @app.route('/api/purchase_requests/<int:request_id>/approve', methods=['POST'])
 def approve_purchase_request(request_id):
-    """Satın alım talebini onayla"""
     data = request.json
     admin_name = data.get('admin_name', 'Admin')
     notes = data.get('notes', '')
-    
     try:
-        request = PurchaseRequest.query.get(request_id)
-        if not request:
+        purchase_request = PurchaseRequest.query.get(request_id)
+        if not purchase_request:
             return jsonify({'error': 'Purchase request not found'}), 404
-        
-        if request.status != 'pending':
+        if purchase_request.status != 'pending':
             return jsonify({'error': 'Request is not pending'}), 400
-        
         # Ürünü kontrol et
-        product = Product.query.get(request.product_id)
+        product = Product.query.get(purchase_request.product_id)
         if not product or not product.is_available or product.stock <= 0:
             return jsonify({'error': 'Product is not available or out of stock'}), 400
-        
         # Kullanıcıyı kontrol et
-        user = User.query.filter_by(name=request.user_name).first()
+        user = User.query.filter_by(name=purchase_request.user_name).first()
         if not user:
             return jsonify({'error': 'User not found'}), 404
-        
         # Puan kontrolü - Ana backend'den kullanıcının puanını al
         try:
             import requests
             points_response = requests.get(f'https://gkappp.onrender.com/api/members')
             if points_response.ok:
                 members = points_response.json()
-                user_member = next((m for m in members if m.get('name') == request.user_name), None)
-                if user_member and user_member.get('points', 0) >= request.points_required:
+                user_member = next((m for m in members if m.get('name') == purchase_request.user_name), None)
+                if user_member and user_member.get('points', 0) >= purchase_request.points_required:
                     # Puan yeterli, puanı düş
                     points_update_response = requests.post(f'https://gkappp.onrender.com/members/adjust_points', data={
                         'member_id': user_member.get('id'),
                         'action': 'subtract',
-                        'point_value': request.points_required,
-                        'point_reason': f'Ürün satın alımı: {request.product_name}'
+                        'point_value': purchase_request.points_required,
+                        'point_reason': f'Ürün satın alımı: {purchase_request.product_name}'
                     })
                     if not points_update_response.ok:
                         return jsonify({'error': 'Puan güncelleme başarısız'}), 500
@@ -399,64 +393,48 @@ def approve_purchase_request(request_id):
         except Exception as e:
             print(f"Puan API hatası: {e}")
             return jsonify({'error': 'Puan sistemi hatası'}), 500
-        
         # Talebi onayla
-        request.status = 'approved'
-        request.approved_at = db.func.now()
-        request.approved_by = admin_name
-        request.notes = notes
-        
+        purchase_request.status = 'approved'
+        purchase_request.approved_at = db.func.now()
+        purchase_request.approved_by = admin_name
+        purchase_request.notes = notes
         # Stok güncelle
         product.stock = max(0, product.stock - 1)
-        
         # Onaylanan satın alımı kaydet
         purchase = Purchase(
-            user_name=request.user_name,
-            product_id=request.product_id,
-            points_spent=request.points_required
+            user_name=purchase_request.user_name,
+            product_id=purchase_request.product_id,
+            points_spent=purchase_request.points_required
         )
-        
         db.session.add(purchase)
         db.session.commit()
-        
         return jsonify({
             'success': True,
             'message': 'Satın alım talebi onaylandı',
             'purchase_id': purchase.id
         })
-        
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Approval failed: {str(e)}'}), 500
 
 @app.route('/api/purchase_requests/<int:request_id>/reject', methods=['POST'])
 def reject_purchase_request(request_id):
-    """Satın alım talebini reddet"""
     data = request.json
     admin_name = data.get('admin_name', 'Admin')
     notes = data.get('notes', '')
-    
     try:
-        request = PurchaseRequest.query.get(request_id)
-        if not request:
+        purchase_request = PurchaseRequest.query.get(request_id)
+        if not purchase_request:
             return jsonify({'error': 'Purchase request not found'}), 404
-        
-        if request.status != 'pending':
+        if purchase_request.status != 'pending':
             return jsonify({'error': 'Request is not pending'}), 400
-        
         # Talebi reddet
-        request.status = 'rejected'
-        request.approved_at = db.func.now()
-        request.approved_by = admin_name
-        request.notes = notes
-        
+        purchase_request.status = 'rejected'
+        purchase_request.approved_at = db.func.now()
+        purchase_request.approved_by = admin_name
+        purchase_request.notes = notes
         db.session.commit()
-        
-        return jsonify({
-            'success': True,
-            'message': 'Satın alım talebi reddedildi'
-        })
-        
+        return jsonify({'success': True, 'message': 'Satın alım talebi reddedildi'})
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Rejection failed: {str(e)}'}), 500

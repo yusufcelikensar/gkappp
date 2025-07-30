@@ -65,3 +65,30 @@ class Purchase(db.Model):
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
     points_spent = db.Column(db.Integer, nullable=False)
     created_at = db.Column(db.DateTime, server_default=db.func.now()) 
+
+class Mentor(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    expertise = db.Column(db.String(500), nullable=False)  # comma-separated
+    company = db.Column(db.String(200), nullable=False)
+    bio = db.Column(db.Text, nullable=False)
+    email = db.Column(db.String(100))
+    phone = db.Column(db.String(20))
+    linkedin = db.Column(db.String(200))
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+class MentorRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_name = db.Column(db.String(100), nullable=False)
+    user_email = db.Column(db.String(100), nullable=False)
+    mentor_id = db.Column(db.Integer, db.ForeignKey('mentor.id'), nullable=False)
+    mentor_name = db.Column(db.String(100), nullable=False)
+    subject = db.Column(db.String(200), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(20), default='pending')  # pending, approved, rejected, completed
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    responded_at = db.Column(db.DateTime)
+    response_message = db.Column(db.Text)
+    notes = db.Column(db.Text) 

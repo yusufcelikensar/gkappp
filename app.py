@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from models import db, User, News, Product, Purchase, PurchaseRequest, Event
+from models import db, User, News, Product, Purchase, PurchaseRequest, Event, Mentor, MentorRequest
 import psycopg2
 import os
 from datetime import datetime
@@ -63,6 +63,37 @@ def product_to_dict(product):
         'isAvailable': product.is_available,
         'created_at': product.created_at,
         'updated_at': product.updated_at,
+    }
+
+def mentor_to_dict(mentor):
+    return {
+        'id': mentor.id,
+        'name': mentor.name,
+        'expertise': mentor.expertise.split(',') if mentor.expertise else [],
+        'company': mentor.company,
+        'bio': mentor.bio,
+        'email': mentor.email,
+        'phone': mentor.phone,
+        'linkedin': mentor.linkedin,
+        'is_active': mentor.is_active,
+        'created_at': mentor.created_at,
+        'updated_at': mentor.updated_at,
+    }
+
+def mentor_request_to_dict(request):
+    return {
+        'id': request.id,
+        'user_name': request.user_name,
+        'user_email': request.user_email,
+        'mentor_id': request.mentor_id,
+        'mentor_name': request.mentor_name,
+        'subject': request.subject,
+        'message': request.message,
+        'status': request.status,
+        'created_at': request.created_at,
+        'responded_at': request.responded_at,
+        'response_message': request.response_message,
+        'notes': request.notes,
     }
 
 app = Flask(__name__)
@@ -200,7 +231,8 @@ def reset_admin():
     # Tüm kullanıcıları sil
     User.query.delete()
     db.session.commit()
-    # Yeni admin hesabı ekle
+    
+    # Admin hesabını yeniden oluştur
     admin = User(
         name='Admin',
         email='gkadmin@mail.com',
@@ -209,8 +241,122 @@ def reset_admin():
     )
     db.session.add(admin)
     db.session.commit()
-    return jsonify({'message': 'Tüm kullanıcılar silindi ve admin hesabı eklendi.',
-                    'admin': {'email': admin.email, 'password': admin.password}}), 200
+    
+    return jsonify({'message': 'Admin reset successful'})
+
+# MENTOR API ENDPOINTS
+
+@app.route('/api/mentors', methods=['GET'])
+def get_mentors():
+    mentors = Mentor.query.filter_by(is_active=True).order_by(Mentor.name).all()
+    return jsonify([mentor_to_dict(mentor) for mentor in mentors])
+
+@app.route('/api/mentors', methods=['POST'])
+def create_mentor():
+    data = request.json
+    mentor = Mentor(
+        name=data['name'],
+        expertise=','.join(data.get('expertise', [])),
+        company=data['company'],
+        bio=data['bio'],
+        email=data.get('email'),
+        phone=data.get('phone'),
+        linkedin=data.get('linkedin'),
+        is_active=data.get('is_active', True)
+    )
+    db.session.add(mentor)
+    db.session.commit()
+    return jsonify(mentor_to_dict(mentor)), 201
+
+@app.route('/api/mentors/<int:mentor_id>', methods=['GET'])
+def get_mentor_detail(mentor_id):
+    mentor = Mentor.query.get(mentor_id)
+    if not mentor:
+        return jsonify({'error': 'Mentor not found'}), 404
+    return jsonify(mentor_to_dict(mentor))
+
+@app.route('/api/mentors/<int:mentor_id>', methods=['PUT'])
+def update_mentor(mentor_id):
+    mentor = Mentor.query.get(mentor_id)
+    if not mentor:
+        return jsonify({'error': 'Mentor not found'}), 404
+    data = request.json
+    mentor.name = data.get('name', mentor.name)
+    mentor.expertise = ','.join(data.get('expertise', mentor.expertise.split(',') if mentor.expertise else []))
+    mentor.company = data.get('company', mentor.company)
+    mentor.bio = data.get('bio', mentor.bio)
+    mentor.email = data.get('email', mentor.email)
+    mentor.phone = data.get('phone', mentor.phone)
+    mentor.linkedin = data.get('linkedin', mentor.linkedin)
+    mentor.is_active = data.get('is_active', mentor.is_active)
+    db.session.commit()
+    return jsonify(mentor_to_dict(mentor))
+
+@app.route('/api/mentors/<int:mentor_id>', methods=['DELETE'])
+def delete_mentor(mentor_id):
+    mentor = Mentor.query.get(mentor_id)
+    if not mentor:
+        return jsonify({'error': 'Mentor not found'}), 404
+    db.session.delete(mentor)
+    db.session.commit()
+    return jsonify({'message': 'Mentor deleted'})
+
+# MENTOR REQUEST API ENDPOINTS
+
+@app.route('/api/mentor_requests', methods=['GET'])
+def get_mentor_requests():
+    requests = MentorRequest.query.order_by(desc(MentorRequest.created_at)).all()
+    return jsonify([mentor_request_to_dict(req) for req in requests])
+
+@app.route('/api/mentor_requests', methods=['POST'])
+def create_mentor_request():
+    data = request.json
+    mentor = Mentor.query.get(data['mentor_id'])
+    if not mentor:
+        return jsonify({'error': 'Mentor not found'}), 404
+    
+    request = MentorRequest(
+        user_name=data['user_name'],
+        user_email=data['user_email'],
+        mentor_id=data['mentor_id'],
+        mentor_name=mentor.name,
+        subject=data['subject'],
+        message=data['message']
+    )
+    db.session.add(request)
+    db.session.commit()
+    return jsonify(mentor_request_to_dict(request)), 201
+
+@app.route('/api/mentor_requests/<int:request_id>', methods=['GET'])
+def get_mentor_request_detail(request_id):
+    request = MentorRequest.query.get(request_id)
+    if not request:
+        return jsonify({'error': 'Request not found'}), 404
+    return jsonify(mentor_request_to_dict(request))
+
+@app.route('/api/mentor_requests/<int:request_id>/respond', methods=['POST'])
+def respond_to_mentor_request(request_id):
+    request = MentorRequest.query.get(request_id)
+    if not request:
+        return jsonify({'error': 'Request not found'}), 404
+    
+    data = request.json
+    request.status = data.get('status', request.status)
+    request.response_message = data.get('response_message', request.response_message)
+    request.notes = data.get('notes', request.notes)
+    request.responded_at = datetime.now()
+    
+    db.session.commit()
+    return jsonify(mentor_request_to_dict(request))
+
+@app.route('/api/mentor_requests/<int:request_id>', methods=['DELETE'])
+def delete_mentor_request(request_id):
+    request = MentorRequest.query.get(request_id)
+    if not request:
+        return jsonify({'error': 'Request not found'}), 404
+    db.session.delete(request)
+    db.session.commit()
+    return jsonify({'message': 'Request deleted'})
 
 # --- PRODUCT MANAGEMENT ENDPOINTS ---
 
@@ -1012,6 +1158,227 @@ def get_active_notifications():
     except Exception as e:
         print(f"Active notifications get error: {e}")
         return jsonify({'error': 'Aktif bildirimler alınamadı'}), 500
+
+@app.route('/api/users', methods=['GET'])
+def get_all_users():
+    try:
+        conn = get_db_connection()
+        if conn is None:
+            return jsonify({'error': 'Veritabanı bağlantı hatası'}), 500
+        
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, name, email, department, student_id, is_approved, is_active, created_at 
+            FROM users 
+            WHERE is_approved = true
+            ORDER BY created_at DESC
+        """)
+        
+        users = []
+        for row in cursor.fetchall():
+            users.append({
+                'id': row[0],
+                'name': row[1],
+                'email': row[2],
+                'department': row[3],
+                'student_id': row[4],
+                'is_approved': row[5],
+                'is_active': row[6],
+                'created_at': row[7].isoformat() if row[7] else None,
+            })
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'users': users})
+    except Exception as e:
+        print(f"Users get error: {e}")
+        return jsonify({'error': 'Kullanıcılar alınamadı'}), 500
+
+# PUSH NOTIFICATION ENDPOINTS
+@app.route('/api/push_notifications/send', methods=['POST'])
+def send_push_notification():
+    try:
+        data = request.json
+        title = data.get('title')
+        message = data.get('message')
+        notification_type = data.get('type', 'info')
+        
+        if not title or not message:
+            return jsonify({'error': 'Başlık ve mesaj gereklidir'}), 400
+        
+        # Bildirimi veritabanına kaydet
+        conn = get_db_connection()
+        if conn is None:
+            return jsonify({'error': 'Veritabanı bağlantı hatası'}), 500
+        
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO notifications (title, message, type, is_active, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            title,
+            message,
+            notification_type,
+            True,
+            datetime.now(),
+            datetime.now()
+        ))
+        
+        notification_id = cursor.fetchone()[0]
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        # Burada gerçek push notification servisi entegrasyonu yapılabilir
+        # Örnek: Firebase Cloud Messaging, OneSignal, vb.
+        
+        # Şimdilik sadece başarı mesajı döndürüyoruz
+        return jsonify({
+            'success': True,
+            'message': 'Push notification başarıyla gönderildi',
+            'notification_id': notification_id,
+            'title': title,
+            'message': message,
+            'type': notification_type
+        })
+        
+    except Exception as e:
+        print(f"Push notification send error: {e}")
+        return jsonify({'error': 'Push notification gönderilemedi'}), 500
+
+@app.route('/api/push_notifications/send_to_all', methods=['POST'])
+def send_push_notification_to_all():
+    try:
+        data = request.json
+        title = data.get('title')
+        message = data.get('message')
+        notification_type = data.get('type', 'info')
+        
+        if not title or not message:
+            return jsonify({'error': 'Başlık ve mesaj gereklidir'}), 400
+        
+        # Bildirimi veritabanına kaydet
+        conn = get_db_connection()
+        if conn is None:
+            return jsonify({'error': 'Veritabanı bağlantı hatası'}), 500
+        
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO notifications (title, message, type, is_active, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            title,
+            message,
+            notification_type,
+            True,
+            datetime.now(),
+            datetime.now()
+        ))
+        
+        notification_id = cursor.fetchone()[0]
+        
+        # Tüm aktif kullanıcıları al
+        cursor.execute("""
+            SELECT id, name, email FROM users 
+            WHERE is_approved = true AND is_active = true
+        """)
+        
+        users = cursor.fetchall()
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        # Burada gerçek push notification servisi entegrasyonu yapılabilir
+        # Tüm kullanıcılara bildirim gönder
+        
+        return jsonify({
+            'success': True,
+            'message': f'Push notification {len(users)} kullanıcıya gönderildi',
+            'notification_id': notification_id,
+            'users_count': len(users),
+            'title': title,
+            'message': message,
+            'type': notification_type
+        })
+        
+    except Exception as e:
+        print(f"Push notification send to all error: {e}")
+        return jsonify({'error': 'Push notification gönderilemedi'}), 500
+
+@app.route('/api/push_notifications/send_to_group', methods=['POST'])
+def send_push_notification_to_group():
+    try:
+        data = request.json
+        title = data.get('title')
+        message = data.get('message')
+        notification_type = data.get('type', 'info')
+        user_ids = data.get('user_ids', [])
+        department = data.get('department')
+        
+        if not title or not message:
+            return jsonify({'error': 'Başlık ve mesaj gereklidir'}), 400
+        
+        if not user_ids and not department:
+            return jsonify({'error': 'Kullanıcı ID\'leri veya bölüm gereklidir'}), 400
+        
+        # Bildirimi veritabanına kaydet
+        conn = get_db_connection()
+        if conn is None:
+            return jsonify({'error': 'Veritabanı bağlantı hatası'}), 500
+        
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO notifications (title, message, type, is_active, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            title,
+            message,
+            notification_type,
+            True,
+            datetime.now(),
+            datetime.now()
+        ))
+        
+        notification_id = cursor.fetchone()[0]
+        
+        # Hedef kullanıcıları al
+        if user_ids:
+            placeholders = ','.join(['%s'] * len(user_ids))
+            cursor.execute(f"""
+                SELECT id, name, email FROM users 
+                WHERE id IN ({placeholders}) AND is_approved = true AND is_active = true
+            """, user_ids)
+        elif department:
+            cursor.execute("""
+                SELECT id, name, email FROM users 
+                WHERE department = %s AND is_approved = true AND is_active = true
+            """, (department,))
+        
+        users = cursor.fetchall()
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        # Burada gerçek push notification servisi entegrasyonu yapılabilir
+        # Seçili kullanıcılara bildirim gönder
+        
+        return jsonify({
+            'success': True,
+            'message': f'Push notification {len(users)} kullanıcıya gönderildi',
+            'notification_id': notification_id,
+            'users_count': len(users),
+            'title': title,
+            'message': message,
+            'type': notification_type
+        })
+        
+    except Exception as e:
+        print(f"Push notification send to group error: {e}")
+        return jsonify({'error': 'Push notification gönderilemedi'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000) 

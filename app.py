@@ -835,5 +835,183 @@ def delete_slider_image(image_id):
         print(f"Slider image delete error: {e}")
         return jsonify({'error': 'Slider fotoğrafı silinemedi'}), 500
 
+# NOTIFICATIONS CRUD ENDPOINTS
+@app.route('/api/notifications', methods=['GET'])
+def get_notifications():
+    try:
+        conn = get_db_connection()
+        if conn is None:
+            return jsonify({'error': 'Veritabanı bağlantı hatası'}), 500
+        
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, title, message, type, is_active, created_at, updated_at 
+            FROM notifications 
+            ORDER BY created_at DESC
+        """)
+        
+        notifications = []
+        for row in cursor.fetchall():
+            notifications.append({
+                'id': row[0],
+                'title': row[1],
+                'message': row[2],
+                'type': row[3],
+                'is_active': row[4],
+                'created_at': row[5].isoformat() if row[5] else None,
+                'updated_at': row[6].isoformat() if row[6] else None,
+            })
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'notifications': notifications})
+    except Exception as e:
+        print(f"Notifications get error: {e}")
+        return jsonify({'error': 'Bildirimler alınamadı'}), 500
+
+@app.route('/api/notifications', methods=['POST'])
+def create_notification():
+    try:
+        data = request.json
+        conn = get_db_connection()
+        if conn is None:
+            return jsonify({'error': 'Veritabanı bağlantı hatası'}), 500
+        
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO notifications (title, message, type, is_active, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            data.get('title'),
+            data.get('message'),
+            data.get('type', 'info'),
+            data.get('is_active', True),
+            datetime.now(),
+            datetime.now()
+        ))
+        
+        notification_id = cursor.fetchone()[0]
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'id': notification_id,
+            'title': data.get('title'),
+            'message': data.get('message'),
+            'type': data.get('type', 'info'),
+            'is_active': data.get('is_active', True),
+            'created_at': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat(),
+        }), 201
+    except Exception as e:
+        print(f"Notification create error: {e}")
+        return jsonify({'error': 'Bildirim oluşturulamadı'}), 500
+
+@app.route('/api/notifications/<int:notification_id>', methods=['PUT'])
+def update_notification(notification_id):
+    try:
+        data = request.json
+        conn = get_db_connection()
+        if conn is None:
+            return jsonify({'error': 'Veritabanı bağlantı hatası'}), 500
+        
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE notifications 
+            SET title = %s, message = %s, type = %s, is_active = %s, updated_at = %s
+            WHERE id = %s
+            RETURNING id, title, message, type, is_active, created_at, updated_at
+        """, (
+            data.get('title'),
+            data.get('message'),
+            data.get('type', 'info'),
+            data.get('is_active', True),
+            datetime.now(),
+            notification_id
+        ))
+        
+        row = cursor.fetchone()
+        if row is None:
+            cursor.close()
+            conn.close()
+            return jsonify({'error': 'Bildirim bulunamadı'}), 404
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'id': row[0],
+            'title': row[1],
+            'message': row[2],
+            'type': row[3],
+            'is_active': row[4],
+            'created_at': row[5].isoformat() if row[5] else None,
+            'updated_at': row[6].isoformat() if row[6] else None,
+        })
+    except Exception as e:
+        print(f"Notification update error: {e}")
+        return jsonify({'error': 'Bildirim güncellenemedi'}), 500
+
+@app.route('/api/notifications/<int:notification_id>', methods=['DELETE'])
+def delete_notification(notification_id):
+    try:
+        conn = get_db_connection()
+        if conn is None:
+            return jsonify({'error': 'Veritabanı bağlantı hatası'}), 500
+        
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM notifications WHERE id = %s", (notification_id,))
+        
+        if cursor.rowcount == 0:
+            cursor.close()
+            conn.close()
+            return jsonify({'error': 'Bildirim bulunamadı'}), 404
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'message': 'Bildirim silindi'})
+    except Exception as e:
+        print(f"Notification delete error: {e}")
+        return jsonify({'error': 'Bildirim silinemedi'}), 500
+
+@app.route('/api/notifications/active', methods=['GET'])
+def get_active_notifications():
+    try:
+        conn = get_db_connection()
+        if conn is None:
+            return jsonify({'error': 'Veritabanı bağlantı hatası'}), 500
+        
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, title, message, type, created_at 
+            FROM notifications 
+            WHERE is_active = true
+            ORDER BY created_at DESC
+        """)
+        
+        notifications = []
+        for row in cursor.fetchall():
+            notifications.append({
+                'id': row[0],
+                'title': row[1],
+                'message': row[2],
+                'type': row[3],
+                'created_at': row[4].isoformat() if row[4] else None,
+            })
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'notifications': notifications})
+    except Exception as e:
+        print(f"Active notifications get error: {e}")
+        return jsonify({'error': 'Aktif bildirimler alınamadı'}), 500
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000) 

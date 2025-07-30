@@ -310,22 +310,39 @@ def get_mentor_requests():
 
 @app.route('/api/mentor_requests', methods=['POST'])
 def create_mentor_request():
-    data = request.json
-    mentor = Mentor.query.get(data['mentor_id'])
-    if not mentor:
-        return jsonify({'error': 'Mentor not found'}), 404
-    
-    request = MentorRequest(
-        user_name=data['user_name'],
-        user_email=data['user_email'],
-        mentor_id=data['mentor_id'],
-        mentor_name=mentor.name,
-        subject=data['subject'],
-        message=data['message']
-    )
-    db.session.add(request)
-    db.session.commit()
-    return jsonify(mentor_request_to_dict(request)), 201
+    try:
+        data = request.json
+        print(f"Mentor request data received: {data}")
+        
+        # Gerekli alanları kontrol et
+        required_fields = ['user_name', 'user_email', 'mentor_id', 'subject', 'message']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        mentor = Mentor.query.get(data['mentor_id'])
+        if not mentor:
+            return jsonify({'error': 'Mentor not found'}), 404
+        
+        mentor_request = MentorRequest(
+            user_name=data['user_name'],
+            user_email=data['user_email'],
+            mentor_id=data['mentor_id'],
+            mentor_name=mentor.name,
+            subject=data['subject'],
+            message=data['message']
+        )
+        
+        db.session.add(mentor_request)
+        db.session.commit()
+        
+        print(f"Mentor request created successfully: {mentor_request.id}")
+        return jsonify(mentor_request_to_dict(mentor_request)), 201
+        
+    except Exception as e:
+        print(f"Error creating mentor request: {str(e)}")
+        db.session.rollback()
+        return jsonify({'error': f'Mentor request creation failed: {str(e)}'}), 500
 
 @app.route('/api/mentor_requests/<int:request_id>', methods=['GET'])
 def get_mentor_request_detail(request_id):

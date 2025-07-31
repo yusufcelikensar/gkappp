@@ -558,7 +558,7 @@ def approve_purchase_request(request_id):
                 user_member = next((m for m in members if m.get('name') == purchase_request.user_name), None)
                 if user_member and user_member.get('points', 0) >= purchase_request.points_required:
                     # Puan yeterli, puanı düş
-                    points_update_response = requests.post(f'https://gkappp.onrender.com/members/adjust_points', data={
+                    points_update_response = requests.post(f'https://gkappp.onrender.com/api/adjust_points', json={
                         'member_id': user_member.get('id'),
                         'action': 'subtract',
                         'point_value': purchase_request.points_required,
@@ -614,12 +614,25 @@ def reject_purchase_request(request_id):
         purchase_request.approved_at = db.func.now()
         purchase_request.approved_by = admin_name
         purchase_request.notes = notes
-        db.session.delete(purchase_request)  # Talebi sil
         db.session.commit()
         return jsonify({'success': True, 'message': 'Satın alım talebi reddedildi'})
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Rejection failed: {str(e)}'}), 500
+
+@app.route('/api/purchase_requests/<int:request_id>', methods=['DELETE'])
+def delete_purchase_request(request_id):
+    try:
+        purchase_request = PurchaseRequest.query.get(request_id)
+        if not purchase_request:
+            return jsonify({'error': 'Purchase request not found'}), 404
+        
+        db.session.delete(purchase_request)
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Satın alım talebi silindi'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Deletion failed: {str(e)}'}), 500
 
 # --- POINTS MANAGEMENT ENDPOINTS ---
 

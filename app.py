@@ -1281,63 +1281,66 @@ def send_push_notification():
 
 @app.route('/api/push_notifications/send_to_all', methods=['POST'])
 def send_push_notification_to_all():
+    """Tüm kullanıcılara push notification gönder"""
     try:
         data = request.json
-        title = data.get('title')
-        message = data.get('message')
-        notification_type = data.get('type', 'info')
+        title = data.get('title', 'Girişimcilik Kulübü')
+        body = data.get('body', 'Yeni bir bildirim var!')
         
-        if not title or not message:
-            return jsonify({'error': 'Başlık ve mesaj gereklidir'}), 400
+        # Tüm kullanıcıların push token'larını al
+        users = User.query.filter(User.push_token.isnot(None)).all()
         
-        # Bildirimi veritabanına kaydet
-        conn = get_db_connection()
-        if conn is None:
-            return jsonify({'error': 'Veritabanı bağlantı hatası'}), 500
+        if not users:
+            return jsonify({'error': 'Push token\'ı olan kullanıcı bulunamadı'}), 400
         
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO notifications (title, message, type, is_active, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING id
-        """, (
-            title,
-            message,
-            notification_type,
-            True,
-            datetime.now(),
-            datetime.now()
-        ))
+        # Expo push notification gönder
+        messages = []
+        for user in users:
+            if user.push_token:
+                messages.append({
+                    'to': user.push_token,
+                    'sound': 'default',
+                    'title': title,
+                    'body': body,
+                    'data': data.get('data', {}),
+                })
         
-        notification_id = cursor.fetchone()[0]
-        
-        # Tüm aktif kullanıcıları al
-        cursor.execute("""
-            SELECT id, name, email FROM users 
-            WHERE is_approved = true AND is_active = true
-        """)
-        
-        users = cursor.fetchall()
-        conn.commit()
-        cursor.close()
-        conn.close()
-        
-        # Burada gerçek push notification servisi entegrasyonu yapılabilir
-        # Tüm kullanıcılara bildirim gönder
-        
-        return jsonify({
-            'success': True,
-            'message': f'Push notification {len(users)} kullanıcıya gönderildi',
-            'notification_id': notification_id,
-            'users_count': len(users),
-            'title': title,
-            'message': message,
-            'type': notification_type
-        })
-        
+        if messages:
+            response = requests.post('https://exp.host/--/api/v2/push/send', 
+                                   json=messages,
+                                   headers={'Content-Type': 'application/json'})
+            
+            if response.status_code == 200:
+                return jsonify({'success': True, 'message': f'{len(messages)} kullanıcıya bildirim gönderildi'})
+            else:
+                return jsonify({'error': 'Bildirimler gönderilemedi'}), 500
+        else:
+            return jsonify({'error': 'Gönderilecek bildirim bulunamadı'}), 400
+            
     except Exception as e:
         print(f"Push notification send to all error: {e}")
-        return jsonify({'error': 'Push notification gönderilemedi'}), 500
+        return jsonify({'error': f'Bildirim gönderme hatası: {str(e)}'}), 500
+
+@app.route('/api/debug/push_tokens', methods=['GET'])
+def debug_push_tokens():
+    """Debug: Push token'ları olan kullanıcıları listele"""
+    try:
+        users = User.query.filter(User.push_token.isnot(None)).all()
+        return jsonify({
+            'success': True,
+            'users_count': len(users),
+            'users': [
+                {
+                    'id': user.id,
+                    'name': user.name,
+                    'email': user.email,
+                    'has_push_token': bool(user.push_token)
+                }
+                for user in users
+            ]
+        })
+    except Exception as e:
+        return jsonify({'error': f'Debug hatası: {str(e)}'}), 500
 
 @app.route('/api/save_push_token', methods=['POST'])
 def save_push_token():

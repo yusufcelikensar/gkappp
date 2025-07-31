@@ -8,6 +8,7 @@ class User(db.Model):
     email = db.Column(db.String(100), unique=True)
     password = db.Column(db.String(255))
     status = db.Column(db.String(20), default='pending')  # pending, approved, rejected
+    push_token = db.Column(db.String(255))  # Expo push token
     created_at = db.Column(db.DateTime, server_default=db.func.now()) 
 
 class News(db.Model):

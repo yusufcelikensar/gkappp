@@ -3,6 +3,7 @@ from flask_cors import CORS
 from models import db, User, News, Product, Purchase, PurchaseRequest, Event, Mentor, MentorRequest
 import psycopg2
 import os
+import requests
 from datetime import datetime
 
 # NEWS CRUD ENDPOINTS
@@ -1337,6 +1338,114 @@ def send_push_notification_to_all():
     except Exception as e:
         print(f"Push notification send to all error: {e}")
         return jsonify({'error': 'Push notification gönderilemedi'}), 500
+
+@app.route('/api/push_notifications/send', methods=['POST'])
+def send_push_notification():
+    """Tek bir kullanıcıya push notification gönder"""
+    try:
+        data = request.json
+        user_email = data.get('user_email')
+        title = data.get('title', 'Girişimcilik Kulübü')
+        body = data.get('body', 'Yeni bir bildirim var!')
+        
+        if not user_email:
+            return jsonify({'error': 'user_email gerekli'}), 400
+        
+        # Kullanıcının push token'ını veritabanından al
+        # Bu kısmı kendi veritabanı yapınıza göre uyarlayın
+        user = User.query.filter_by(email=user_email).first()
+        if not user or not hasattr(user, 'push_token') or not user.push_token:
+            return jsonify({'error': 'Kullanıcı bulunamadı veya push token yok'}), 404
+        
+        # Expo push notification gönder
+        import requests
+        
+        message = {
+            'to': user.push_token,
+            'sound': 'default',
+            'title': title,
+            'body': body,
+            'data': data.get('data', {}),
+        }
+        
+        response = requests.post('https://exp.host/--/api/v2/push/send', 
+                               json=message,
+                               headers={'Content-Type': 'application/json'})
+        
+        if response.status_code == 200:
+            return jsonify({'success': True, 'message': 'Bildirim gönderildi'})
+        else:
+            return jsonify({'error': 'Bildirim gönderilemedi'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'Bildirim gönderme hatası: {str(e)}'}), 500
+
+@app.route('/api/push_notifications/send_to_all', methods=['POST'])
+def send_push_notification_to_all():
+    """Tüm kullanıcılara push notification gönder"""
+    try:
+        data = request.json
+        title = data.get('title', 'Girişimcilik Kulübü')
+        body = data.get('body', 'Yeni bir bildirim var!')
+        
+        # Tüm kullanıcıların push token'larını al
+        users = User.query.filter(User.push_token.isnot(None)).all()
+        
+        if not users:
+            return jsonify({'error': 'Push token\'ı olan kullanıcı bulunamadı'}), 404
+        
+        # Expo push notification gönder
+        import requests
+        
+        messages = []
+        for user in users:
+            if user.push_token:
+                messages.append({
+                    'to': user.push_token,
+                    'sound': 'default',
+                    'title': title,
+                    'body': body,
+                    'data': data.get('data', {}),
+                })
+        
+        if messages:
+            response = requests.post('https://exp.host/--/api/v2/push/send', 
+                                   json=messages,
+                                   headers={'Content-Type': 'application/json'})
+            
+            if response.status_code == 200:
+                return jsonify({'success': True, 'message': f'{len(messages)} kullanıcıya bildirim gönderildi'})
+            else:
+                return jsonify({'error': 'Bildirimler gönderilemedi'}), 500
+        else:
+            return jsonify({'error': 'Gönderilecek bildirim bulunamadı'}), 404
+            
+    except Exception as e:
+        return jsonify({'error': f'Bildirim gönderme hatası: {str(e)}'}), 500
+
+@app.route('/api/save_push_token', methods=['POST'])
+def save_push_token():
+    """Kullanıcının push token'ını kaydet"""
+    try:
+        data = request.json
+        user_email = data.get('user_email')
+        push_token = data.get('push_token')
+        
+        if not user_email or not push_token:
+            return jsonify({'error': 'user_email ve push_token gerekli'}), 400
+        
+        user = User.query.filter_by(email=user_email).first()
+        if not user:
+            return jsonify({'error': 'Kullanıcı bulunamadı'}), 404
+        
+        user.push_token = push_token
+        db.session.commit()
+        
+        return jsonify({'success': True, 'message': 'Push token kaydedildi'})
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Push token kaydetme hatası: {str(e)}'}), 500
 
 @app.route('/api/push_notifications/send_to_group', methods=['POST'])
 def send_push_notification_to_group():

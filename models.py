@@ -33,6 +33,7 @@ class Event(db.Model):
     image_url = db.Column(db.String(500))
     price = db.Column(db.String(50), default='Ücretsiz')
     capacity = db.Column(db.String(50), default='Sınırsız')
+    ticket_url = db.Column(db.String(500), default='https://instagram.com')  # Bilet alma linki
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())

@@ -47,6 +47,7 @@ def event_to_dict(event):
         'image_url': event.image_url,
         'price': event.price,
         'capacity': event.capacity,
+        'ticket_url': event.ticket_url,
         'is_active': event.is_active,
         'created_at': event.created_at,
         'updated_at': event.updated_at,
@@ -848,6 +849,7 @@ def create_event():
             image_url=data.get('image_url'),
             price=data.get('price', 'Ücretsiz'),
             capacity=data.get('capacity', 'Sınırsız'),
+            ticket_url=data.get('ticket_url', 'https://instagram.com'),
             is_active=data.get('is_active', True)
         )
         db.session.add(event)
@@ -881,6 +883,7 @@ def update_event(event_id):
         event.image_url = data.get('image_url', event.image_url)
         event.price = data.get('price', event.price)
         event.capacity = data.get('capacity', event.capacity)
+        event.ticket_url = data.get('ticket_url', event.ticket_url)
         event.is_active = data.get('is_active', event.is_active)
         
         db.session.commit()

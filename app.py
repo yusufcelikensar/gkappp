@@ -189,14 +189,20 @@ def register():
             name=data['name'],
             email=data['email'],
             password='GK*admin_1',
-            status='approved'
+            status='approved',
+            studentId=data.get('studentId'),
+            department=data.get('department'),
+            year=data.get('year')
         )
     else:
         user = User(
             name=data['name'],
             email=data['email'],
             password=data['password'],
-            status='pending'
+            status='pending',
+            studentId=data.get('studentId'),
+            department=data.get('department'),
+            year=data.get('year')
         )
     db.session.add(user)
     db.session.commit()
@@ -208,7 +214,15 @@ def login():
     user = User.query.filter_by(email=data['email'], password=data['password']).first()
     if not user:
         return jsonify({'error': 'Invalid credentials'}), 401
-    return jsonify({'id': user.id, 'name': user.name, 'email': user.email, 'status': user.status})
+    return jsonify({
+        'id': user.id, 
+        'name': user.name, 
+        'email': user.email, 
+        'status': user.status,
+        'studentId': user.studentId,
+        'department': user.department,
+        'year': user.year
+    })
 
 @app.route('/api/pending_users', methods=['GET'])
 def pending_users():
@@ -219,8 +233,9 @@ def pending_users():
             'name': user.name,
             'email': user.email,
             'createdAt': user.created_at,
-            'studentId': getattr(user, 'studentId', None),
-            'department': getattr(user, 'department', None),
+            'studentId': user.studentId,
+            'department': user.department,
+            'year': user.year,
         }
         for user in users
     ])
@@ -256,7 +271,10 @@ def reset_admin():
         name='Admin',
         email='gkadmin@mail.com',
         password='GK*admin_1',
-        status='approved'
+        status='approved',
+        studentId=None,
+        department=None,
+        year=None
     )
     db.session.add(admin)
     db.session.commit()

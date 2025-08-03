@@ -8,7 +8,6 @@ class User(db.Model):
     email = db.Column(db.String(100), unique=True)
     password = db.Column(db.String(255))
     status = db.Column(db.String(20), default='pending')  # pending, approved, rejected
-    push_token = db.Column(db.String(255))  # Expo push token
     created_at = db.Column(db.DateTime, server_default=db.func.now()) 
 
 class News(db.Model):
@@ -92,4 +91,20 @@ class MentorRequest(db.Model):
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     responded_at = db.Column(db.DateTime)
     response_message = db.Column(db.Text)
-    notes = db.Column(db.Text) 
+    notes = db.Column(db.Text)
+
+class Business(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    discount = db.Column(db.Integer, nullable=False)
+    category = db.Column(db.String(100), nullable=False)
+    address = db.Column(db.Text, nullable=False)
+    latitude = db.Column(db.Numeric(10, 8), nullable=False)
+    longitude = db.Column(db.Numeric(11, 8), nullable=False)
+    description = db.Column(db.Text)
+    logo_url = db.Column(db.String(500))
+    phone = db.Column(db.String(20))
+    website = db.Column(db.String(200))
+    google_maps_url = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now()) 

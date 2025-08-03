@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from models import db, User, News, Product, Purchase, PurchaseRequest, Event, Mentor, MentorRequest
+from models import db, User, News, Product, Purchase, PurchaseRequest, Event, Mentor, MentorRequest, Business
 import psycopg2
 import os
 import requests
@@ -95,6 +95,24 @@ def mentor_request_to_dict(request):
         'responded_at': request.responded_at,
         'response_message': request.response_message,
         'notes': request.notes,
+    }
+
+def business_to_dict(business):
+    return {
+        'id': str(business.id),
+        'name': business.name,
+        'discount': business.discount,
+        'category': business.category,
+        'address': business.address,
+        'latitude': float(business.latitude),
+        'longitude': float(business.longitude),
+        'description': business.description,
+        'logo_url': business.logo_url,
+        'phone': business.phone,
+        'website': business.website,
+        'google_maps_url': business.google_maps_url,
+        'created_at': business.created_at,
+        'updated_at': business.updated_at,
     }
 
 app = Flask(__name__)
@@ -1321,50 +1339,7 @@ def send_push_notification_to_all():
         print(f"Push notification send to all error: {e}")
         return jsonify({'error': f'Bildirim gönderme hatası: {str(e)}'}), 500
 
-@app.route('/api/debug/push_tokens', methods=['GET'])
-def debug_push_tokens():
-    """Debug: Push token'ları olan kullanıcıları listele"""
-    try:
-        users = User.query.filter(User.push_token.isnot(None)).all()
-        return jsonify({
-            'success': True,
-            'users_count': len(users),
-            'users': [
-                {
-                    'id': user.id,
-                    'name': user.name,
-                    'email': user.email,
-                    'has_push_token': bool(user.push_token)
-                }
-                for user in users
-            ]
-        })
-    except Exception as e:
-        return jsonify({'error': f'Debug hatası: {str(e)}'}), 500
 
-@app.route('/api/save_push_token', methods=['POST'])
-def save_push_token():
-    """Kullanıcının push token'ını kaydet"""
-    try:
-        data = request.json
-        user_email = data.get('user_email')
-        push_token = data.get('push_token')
-        
-        if not user_email or not push_token:
-            return jsonify({'error': 'user_email ve push_token gerekli'}), 400
-        
-        user = User.query.filter_by(email=user_email).first()
-        if not user:
-            return jsonify({'error': 'Kullanıcı bulunamadı'}), 404
-        
-        user.push_token = push_token
-        db.session.commit()
-        
-        return jsonify({'success': True, 'message': 'Push token kaydedildi'})
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': f'Push token kaydetme hatası: {str(e)}'}), 500
 
 @app.route('/api/push_notifications/send_to_group', methods=['POST'])
 def send_push_notification_to_group():
@@ -1437,6 +1412,139 @@ def send_push_notification_to_group():
     except Exception as e:
         print(f"Push notification send to group error: {e}")
         return jsonify({'error': 'Push notification gönderilemedi'}), 500
+
+
+# BUSINESS CRUD ENDPOINTS
+
+@app.route('/api/businesses', methods=['GET'])
+def get_businesses():
+    try:
+        businesses = Business.query.all()
+        return jsonify({
+            'success': True,
+            'businesses': [business_to_dict(business) for business in businesses]
+        })
+    except Exception as e:
+        print(f"Get businesses error: {e}")
+        return jsonify({'error': 'İşletmeler alınamadı'}), 500
+
+@app.route('/api/businesses', methods=['POST'])
+def create_business():
+    try:
+        data = request.json
+        
+        # Gerekli alanları kontrol et
+        required_fields = ['name', 'discount', 'category', 'address', 'latitude', 'longitude']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({'error': f'{field} alanı gereklidir'}), 400
+        
+        # Yeni işletme oluştur
+        new_business = Business(
+            name=data['name'],
+            discount=data['discount'],
+            category=data['category'],
+            address=data['address'],
+            latitude=data['latitude'],
+            longitude=data['longitude'],
+            description=data.get('description'),
+            logo_url=data.get('logo_url'),
+            phone=data.get('phone'),
+            website=data.get('website'),
+            google_maps_url=data.get('google_maps_url')
+        )
+        
+        db.session.add(new_business)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'İşletme başarıyla eklendi',
+            'business': business_to_dict(new_business)
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"Create business error: {e}")
+        return jsonify({'error': 'İşletme eklenemedi'}), 500
+
+@app.route('/api/businesses/<int:business_id>', methods=['GET'])
+def get_business_detail(business_id):
+    try:
+        business = Business.query.get(business_id)
+        if not business:
+            return jsonify({'error': 'İşletme bulunamadı'}), 404
+        
+        return jsonify({
+            'success': True,
+            'business': business_to_dict(business)
+        })
+        
+    except Exception as e:
+        print(f"Get business detail error: {e}")
+        return jsonify({'error': 'İşletme detayı alınamadı'}), 500
+
+@app.route('/api/businesses/<int:business_id>', methods=['PUT'])
+def update_business(business_id):
+    try:
+        business = Business.query.get(business_id)
+        if not business:
+            return jsonify({'error': 'İşletme bulunamadı'}), 404
+        
+        data = request.json
+        
+        # Gerekli alanları kontrol et
+        required_fields = ['name', 'discount', 'category', 'address', 'latitude', 'longitude']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({'error': f'{field} alanı gereklidir'}), 400
+        
+        # İşletmeyi güncelle
+        business.name = data['name']
+        business.discount = data['discount']
+        business.category = data['category']
+        business.address = data['address']
+        business.latitude = data['latitude']
+        business.longitude = data['longitude']
+        business.description = data.get('description')
+        business.logo_url = data.get('logo_url')
+        business.phone = data.get('phone')
+        business.website = data.get('website')
+        business.google_maps_url = data.get('google_maps_url')
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'İşletme başarıyla güncellendi',
+            'business': business_to_dict(business)
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"Update business error: {e}")
+        return jsonify({'error': 'İşletme güncellenemedi'}), 500
+
+@app.route('/api/businesses/<int:business_id>', methods=['DELETE'])
+def delete_business(business_id):
+    try:
+        business = Business.query.get(business_id)
+        if not business:
+            return jsonify({'error': 'İşletme bulunamadı'}), 404
+        
+        db.session.delete(business)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'İşletme başarıyla silindi'
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"Delete business error: {e}")
+        return jsonify({'error': 'İşletme silinemedi'}), 500
+
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000) 
